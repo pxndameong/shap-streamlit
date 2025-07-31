@@ -176,7 +176,7 @@ if st.sidebar.button("🚀 Mulai Perhitungan SHAP Rata-rata"):
                     st.error(f"❌ Gagal menghitung SHAP values. Pastikan data tidak kosong atau memiliki masalah numerik setelah pembersihan. Detail: `{e}`")
                     return None, None, None
                 
-                return shap_values_array, expected_value, X_cleaned # X_cleaned contains feature names and data
+                return shap_values_array, expected_value, X_cleaned 
 
             raw_shap_values, expected_value_for_plot, X_cleaned_for_plot = calculate_shap_data(
                 df_data, target_variable, feature_variables
@@ -190,11 +190,16 @@ if st.sidebar.button("🚀 Mulai Perhitungan SHAP Rata-rata"):
                 # Create two columns for the plots
                 col1, col2 = st.columns(2)
 
+                # Define a consistent figure size
+                # Anda bisa menyesuaikan angka-angka ini (misal: (10, 7) atau (12, 9))
+                # sampai Anda menemukan ukuran yang paling pas di Streamlit Anda.
+                PLOT_FIGSIZE = (10, 7) 
+
                 # --- Plot SHAP Summary (Left Column) ---
                 with col1:
                     st.markdown("##### SHAP Summary Plot (Distribusi Pengaruh Fitur)")
                     plt.clf() 
-                    fig_summary = plt.figure(figsize=(10, 7)) # Create a new figure
+                    fig_summary = plt.figure(figsize=PLOT_FIGSIZE) # Use consistent size
                     
                     shap_explanation_for_summary_plot = shap.Explanation(
                         values=raw_shap_values,
@@ -211,15 +216,14 @@ if st.sidebar.button("🚀 Mulai Perhitungan SHAP Rata-rata"):
                     except Exception as e:
                         st.error(f"❌ Gagal membuat SHAP Summary Plot. Detail: `{e}`")
                     finally:
-                        plt.close(fig_summary) # Always close the figure
+                        plt.close(fig_summary) 
 
                 # --- Plot Mean Absolute SHAP (Right Column) ---
                 with col2:
                     st.markdown("##### Mean Absolute SHAP (Kepentingan Fitur Rata-rata)")
                     plt.clf()
-                    fig_bar = plt.figure(figsize=(10, 7)) # Create another new figure
+                    fig_bar = plt.figure(figsize=PLOT_FIGSIZE) # Use consistent size
 
-                    # Calculate mean absolute SHAP values for the bar plot
                     mean_abs_shap_values_for_plot = np.mean(np.abs(raw_shap_values), axis=0)
                     df_mean_abs_shap = pd.DataFrame({
                         'Feature': X_cleaned_for_plot.columns.tolist(),
@@ -230,7 +234,7 @@ if st.sidebar.button("🚀 Mulai Perhitungan SHAP Rata-rata"):
                     plt.xlabel("Mean Absolute SHAP Value")
                     plt.ylabel("Feature")
                     plt.title("Mean Absolute SHAP Values (Feature Importance)")
-                    plt.gca().invert_yaxis() # Invert y-axis to show most important at top
+                    plt.gca().invert_yaxis() 
                     plt.tight_layout()
                     
                     try:
@@ -238,16 +242,16 @@ if st.sidebar.button("🚀 Mulai Perhitungan SHAP Rata-rata"):
                     except Exception as e:
                         st.error(f"❌ Gagal membuat Mean Absolute SHAP Bar Plot. Detail: `{e}`")
                     finally:
-                        plt.close(fig_bar) # Always close the figure
+                        plt.close(fig_bar) 
 
-                st.markdown("---") # Separator below plots
+                st.markdown("---") 
 
                 # --- SHAP Values Table and Download (Below Plots) ---
                 st.subheader("📊 SHAP Values Rata-rata (Tabel & Unduh Excel)")
                 
                 mean_abs_shap_values_for_table = np.mean(np.abs(raw_shap_values), axis=0)
                 df_shap_results = pd.DataFrame({
-                    'Feature': X_cleaned_for_plot.columns.tolist(),
+                    'Feature': X_cleaned_for_plot.columns.tolist(), 
                     'Mean_Absolute_SHAP_Value': mean_abs_shap_values_for_table
                 }).sort_values(by='Mean_Absolute_SHAP_Value', ascending=False).reset_index(drop=True)
 
