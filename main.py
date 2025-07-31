@@ -15,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-st.title("📊 Aplikasi Aplikasi Perhitungan SHAP Rata-rata")
+st.title("📊 Aplikasi Perhitungan SHAP Rata-rata")
 
 st.markdown(
     """
@@ -110,7 +110,6 @@ if st.sidebar.button("🚀 Mulai Perhitungan SHAP Rata-rata"):
         st.error("❌ Harap pilih setidaknya satu variabel fitur.")
     else:
         with st.spinner("⏳ Memulai perhitungan SHAP... Proses ini mungkin memakan waktu tergantung ukuran data Anda."):
-            # Removed @st.cache_data here for the plotting logic itself
             def calculate_shap_data(df_input_data, target_col, feature_cols):
                 st.subheader("Detail Proses Data")
                 
@@ -169,7 +168,6 @@ if st.sidebar.button("🚀 Mulai Perhitungan SHAP Rata-rata"):
                 
                 try:
                     explainer = shap.TreeExplainer(model) 
-                    # Get the raw SHAP values array and expected value
                     shap_values_array = explainer.shap_values(X_cleaned) 
                     expected_value = explainer.expected_value
                     
@@ -178,74 +176,92 @@ if st.sidebar.button("🚀 Mulai Perhitungan SHAP Rata-rata"):
                     st.error(f"❌ Gagal menghitung SHAP values. Pastikan data tidak kosong atau memiliki masalah numerik setelah pembersihan. Detail: `{e}`")
                     return None, None, None
                 
-                # We return the components needed to construct Explanation object for plotting later
-                # and for the table.
                 return shap_values_array, expected_value, X_cleaned # X_cleaned contains feature names and data
 
-            # Call the main SHAP calculation function
-            # We now get raw SHAP values, expected_value, and the cleaned X DataFrame
             raw_shap_values, expected_value_for_plot, X_cleaned_for_plot = calculate_shap_data(
                 df_data, target_variable, feature_variables
             )
 
-            # Check if SHAP calculation was successful
             if raw_shap_values is not None and expected_value_for_plot is not None and X_cleaned_for_plot is not None:
                 st.success("✅ Analisis SHAP Selesai!")
-                st.subheader(f"📈 Plot SHAP Rata-rata Keseluruhan untuk Target: **{target_variable}**")
                 
-                # --- Generate and display SHAP Summary Plot ---
-                # It's good practice to clear figures in Streamlit after use
-                plt.clf() # Clear the current figure
-                plt.figure(figsize=(12, 8)) # Create a new figure
+                st.subheader(f"📈 Visualisasi SHAP untuk Target: **{target_variable}**")
                 
-                # Manually construct shap.Explanation right before plotting
-                # This ensures the most up-to-date and consistent object for the plot
-                shap_explanation_for_plot = shap.Explanation(
-                    values=raw_shap_values,
-                    base_values=expected_value_for_plot,
-                    data=X_cleaned_for_plot.values, # Ensure this is a numpy array
-                    feature_names=X_cleaned_for_plot.columns.tolist() # Ensure feature names are correct
-                )
-                
-                try:
-                    # Using the Explanation object for summary_plot
-                    shap.summary_plot(shap_explanation_for_plot, show=False) 
-                    plt.title(f"SHAP Summary Plot Rata-rata untuk Target: {target_variable}")
-                    plt.tight_layout()
-                    st.pyplot(plt) # Pass the pyplot module itself, or the current figure explicitly if created with plt.figure()
-                    # plt.close(plt.gcf()) # Close the current figure
-                except Exception as e:
-                    st.error(f"❌ Gagal membuat plot SHAP. Ini mungkin masalah kompatibilitas Matplotlib/SHAP atau data. Detail: `{e}`")
-                    # Ensure the plot figure is closed even if an error occurs
-                    plt.close('all') 
+                # Create two columns for the plots
+                col1, col2 = st.columns(2)
 
-                # Always clean up the plot environment
-                plt.close('all') # Close all figures to free up memory
-
-                if raw_shap_values is not None and X_cleaned_for_plot is not None:
-                    st.subheader("📊 SHAP Values Rata-rata (Tabel & Unduh Excel)")
+                # --- Plot SHAP Summary (Left Column) ---
+                with col1:
+                    st.markdown("##### SHAP Summary Plot (Distribusi Pengaruh Fitur)")
+                    plt.clf() 
+                    fig_summary = plt.figure(figsize=(10, 7)) # Create a new figure
                     
-                    # Calculate mean absolute SHAP value for each feature
-                    mean_abs_shap_values = np.mean(np.abs(raw_shap_values), axis=0)
-                    
-                    # Create DataFrame from mean absolute SHAP values
-                    df_shap_results = pd.DataFrame({
-                        'Feature': X_cleaned_for_plot.columns.tolist(), # Use feature names from X_cleaned_for_plot
-                        'Mean_Absolute_SHAP_Value': mean_abs_shap_values
-                    }).sort_values(by='Mean_Absolute_SHAP_Value', ascending=False).reset_index(drop=True)
-
-                    st.dataframe(df_shap_results)
-
-                    # Provide download button for Excel
-                    excel_buffer = io.BytesIO()
-                    df_shap_results.to_excel(excel_buffer, index=False, sheet_name=f'SHAP_Values_{target_variable}')
-                    excel_buffer.seek(0)
-
-                    st.download_button(
-                        label="📥 Unduh SHAP Values Rata-rata sebagai Excel",
-                        data=excel_buffer,
-                        file_name=f"shap_values_rata_rata_{target_variable}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    shap_explanation_for_summary_plot = shap.Explanation(
+                        values=raw_shap_values,
+                        base_values=expected_value_for_plot,
+                        data=X_cleaned_for_plot.values,
+                        feature_names=X_cleaned_for_plot.columns.tolist()
                     )
+                    
+                    try:
+                        shap.summary_plot(shap_explanation_for_summary_plot, show=False)
+                        plt.title("SHAP Summary Plot")
+                        plt.tight_layout()
+                        st.pyplot(fig_summary)
+                    except Exception as e:
+                        st.error(f"❌ Gagal membuat SHAP Summary Plot. Detail: `{e}`")
+                    finally:
+                        plt.close(fig_summary) # Always close the figure
+
+                # --- Plot Mean Absolute SHAP (Right Column) ---
+                with col2:
+                    st.markdown("##### Mean Absolute SHAP (Kepentingan Fitur Rata-rata)")
+                    plt.clf()
+                    fig_bar = plt.figure(figsize=(10, 7)) # Create another new figure
+
+                    # Calculate mean absolute SHAP values for the bar plot
+                    mean_abs_shap_values_for_plot = np.mean(np.abs(raw_shap_values), axis=0)
+                    df_mean_abs_shap = pd.DataFrame({
+                        'Feature': X_cleaned_for_plot.columns.tolist(),
+                        'Mean_Absolute_SHAP_Value': mean_abs_shap_values_for_plot
+                    }).sort_values(by='Mean_Absolute_SHAP_Value', ascending=False)
+
+                    plt.barh(df_mean_abs_shap['Feature'], df_mean_abs_shap['Mean_Absolute_SHAP_Value'])
+                    plt.xlabel("Mean Absolute SHAP Value")
+                    plt.ylabel("Feature")
+                    plt.title("Mean Absolute SHAP Values (Feature Importance)")
+                    plt.gca().invert_yaxis() # Invert y-axis to show most important at top
+                    plt.tight_layout()
+                    
+                    try:
+                        st.pyplot(fig_bar)
+                    except Exception as e:
+                        st.error(f"❌ Gagal membuat Mean Absolute SHAP Bar Plot. Detail: `{e}`")
+                    finally:
+                        plt.close(fig_bar) # Always close the figure
+
+                st.markdown("---") # Separator below plots
+
+                # --- SHAP Values Table and Download (Below Plots) ---
+                st.subheader("📊 SHAP Values Rata-rata (Tabel & Unduh Excel)")
+                
+                mean_abs_shap_values_for_table = np.mean(np.abs(raw_shap_values), axis=0)
+                df_shap_results = pd.DataFrame({
+                    'Feature': X_cleaned_for_plot.columns.tolist(),
+                    'Mean_Absolute_SHAP_Value': mean_abs_shap_values_for_table
+                }).sort_values(by='Mean_Absolute_SHAP_Value', ascending=False).reset_index(drop=True)
+
+                st.dataframe(df_shap_results)
+
+                excel_buffer = io.BytesIO()
+                df_shap_results.to_excel(excel_buffer, index=False, sheet_name=f'SHAP_Values_{target_variable}')
+                excel_buffer.seek(0)
+
+                st.download_button(
+                    label="📥 Unduh SHAP Values Rata-rata sebagai Excel",
+                    data=excel_buffer,
+                    file_name=f"shap_values_rata_rata_{target_variable}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
             else:
                 st.error("❌ Perhitungan SHAP tidak berhasil diselesaikan. Harap periksa pesan kesalahan di atas untuk detail.")
