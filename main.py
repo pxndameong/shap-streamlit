@@ -111,45 +111,37 @@ if st.sidebar.button("🚀 Mulai Perhitungan SHAP Rata-rata"):
     else:
         with st.spinner("⏳ Memulai perhitungan SHAP... Proses ini mungkin memakan waktu tergantung ukuran data Anda."):
             # --- Function to Calculate Average SHAP ---
-            @st.cache_data(show_spinner=False) # Cache result for performance, hide default spinner
+            # Removed @st.cache_data here temporarily to rule out caching issues if any
             def calculate_average_shap_for_single_file(df_input_data, target_col, feature_cols):
                 st.subheader("Detail Proses Data")
                 
-                # IMPORTANT: Work on a copy of the DataFrame to avoid modifying the cached original
-                # and to prevent SettingWithCopyWarning
                 df_processed = df_input_data.copy()
 
-                # Ensure selected feature columns exist in the DataFrame
                 missing_features = [col for col in feature_cols if col not in df_processed.columns]
                 if missing_features:
                     st.error(f"❌ Kolom fitur berikut tidak ditemukan dalam data: {', '.join(missing_features)}. Harap periksa pilihan Anda.")
-                    return None, None, None, None # Add None for shap_explanation_for_plot
+                    return None, None, None, None 
 
-                # Ensure target column exists
                 if target_col not in df_processed.columns:
                     st.error(f"❌ Kolom target '{target_col}' tidak ditemukan dalam data. Harap periksa pilihan Anda.")
-                    return None, None, None, None # Add None for shap_explanation_for_plot
+                    return None, None, None, None 
 
-                # Round lat/lon only if they are selected as features and exist in the DataFrame
                 if 'lat' in feature_cols and 'lat' in df_processed.columns:
                     df_processed['lat'] = df_processed['lat'].round(3)
                 if 'lon' in feature_cols and 'lon' in df_processed.columns:
                     df_processed['lon'] = df_processed['lon'].round(3)
 
-                # Convert all selected feature columns to numeric, coercing errors to NaN
                 for col in feature_cols:
                     df_processed[col] = pd.to_numeric(df_processed[col], errors='coerce')
                 
-                # Convert target column to numeric
                 df_processed[target_col] = pd.to_numeric(df_processed[target_col], errors='coerce')
 
-                # Create X and y based on user's selections
                 X = df_processed[feature_cols]
                 y = df_processed[target_col]
 
-                # Drop rows with NaN in X or y
                 initial_rows = len(X)
                 
+                # Combine X and y, then drop NaNs
                 combined_df_for_dropna = pd.concat([X, y], axis=1)
                 combined_df_cleaned = combined_df_for_dropna.dropna()
                 
@@ -166,6 +158,7 @@ if st.sidebar.button("🚀 Mulai Perhitungan SHAP Rata-rata"):
                 st.info(f"Jumlah baris data yang akan diproses setelah membersihkan nilai hilang atau non-numerik: **{len(X_cleaned)}** dari **{initial_rows}** baris awal.")
                 
                 # --- Train Model ---
+                model = None # Initialize model
                 try:
                     model = xgb.XGBRegressor(n_estimators=100, max_depth=4, random_state=42)
                     model.fit(X_cleaned, y_cleaned) # Use cleaned data for training
@@ -175,25 +168,37 @@ if st.sidebar.button("🚀 Mulai Perhitungan SHAP Rata-rata"):
                     return None, None, None, None
 
                 # --- Calculate SHAP Values ---
-                shap_explanation_for_plot = None # Initialize
+                shap_values_array = None
+                expected_value = None
+                final_X_features = X_cleaned.columns.tolist() # Get feature names from cleaned X
+                
                 try:
-                    explainer = shap.Explainer(model, X_cleaned)
-                    # This line directly computes the shap.Explanation object
-                    shap_explanation_for_plot = explainer(X_cleaned) 
+                    # Use a TreeExplainer for XGBoost for better performance and accuracy
+                    explainer = shap.TreeExplainer(model) 
+                    shap_values_obj = explainer(X_cleaned) # This computes the Explanation object
+                    
+                    shap_values_array = shap_values_obj.values # Extract numpy array of SHAP values
+                    expected_value = explainer.expected_value # Extract base value
+
                     st.success("✅ SHAP values berhasil dihitung.")
                 except Exception as e:
                     st.error(f"❌ Gagal menghitung SHAP values. Pastikan data tidak kosong atau memiliki masalah numerik setelah pembersihan. Detail: `{e}`")
                     return None, None, None, None
                 
-                # The raw values for the table come from the explanation object
-                averaged_shap_values = shap_explanation_for_plot.values
-                final_X_features = X_cleaned.columns.tolist() 
+                # Manually construct shap.Explanation to ensure consistency for plotting
+                # This explicitly sets data and feature_names which sometimes helps resolve TypeErrors
+                shap_explanation_for_plot = shap.Explanation(
+                    values=shap_values_array,
+                    base_values=expected_value,
+                    data=X_cleaned.values, # Ensure this is a numpy array
+                    feature_names=final_X_features
+                )
                 
-                return None, averaged_shap_values, final_X_features, shap_explanation_for_plot # Return explanation object here
+                return shap_values_array, final_X_features, shap_explanation_for_plot
 
             # Call the main SHAP calculation function
-            # We now expect 4 return values from the function
-            fig_placeholder, shap_values_array, feature_names, shap_explanation_object = calculate_average_shap_for_single_file(
+            # We now expect 3 return values: raw SHAP values, feature names, and the Explanation object
+            raw_shap_values, feature_names_for_table, shap_explanation_object = calculate_average_shap_for_single_file(
                 df_data, target_variable, feature_variables
             )
 
@@ -204,21 +209,24 @@ if st.sidebar.button("🚀 Mulai Perhitungan SHAP Rata-rata"):
                 
                 # --- Generate and display SHAP Summary Plot ---
                 fig_avg, ax_avg = plt.subplots(figsize=(12, 8))
+                
+                # Directly use the Explanation object obtained from the function
                 shap.summary_plot(shap_explanation_object, show=False, ax=ax_avg) 
+                
                 plt.title(f"SHAP Summary Plot Rata-rata untuk Target: {target_variable}")
                 plt.tight_layout()
                 st.pyplot(fig_avg)
                 plt.close(fig_avg) # Close the figure to free up memory
 
-                if shap_values_array is not None and feature_names is not None:
+                if raw_shap_values is not None and feature_names_for_table is not None:
                     st.subheader("📊 SHAP Values Rata-rata (Tabel & Unduh Excel)")
                     
                     # Calculate mean absolute SHAP value for each feature
-                    mean_abs_shap_values = np.mean(np.abs(shap_values_array), axis=0)
+                    mean_abs_shap_values = np.mean(np.abs(raw_shap_values), axis=0)
                     
                     # Create DataFrame from mean absolute SHAP values
                     df_shap_results = pd.DataFrame({
-                        'Feature': feature_names,
+                        'Feature': feature_names_for_table,
                         'Mean_Absolute_SHAP_Value': mean_abs_shap_values
                     }).sort_values(by='Mean_Absolute_SHAP_Value', ascending=False).reset_index(drop=True)
 
