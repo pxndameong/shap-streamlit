@@ -7,7 +7,7 @@ import os
 import numpy as np
 import io # Import io for BytesIO
 
-# --- Streamlit UI Configuration ---
+# --- Streamlit UI Configuration (keep as is) ---
 st.set_page_config(
     page_title="Aplikasi Perhitungan SHAP",
     page_icon="📊",
@@ -26,7 +26,7 @@ st.markdown(
     """
 )
 
-# --- File Upload Section ---
+# --- File Upload Section (keep as is) ---
 st.sidebar.header("📤 Unggah File Data")
 
 uploaded_file = st.sidebar.file_uploader(
@@ -50,7 +50,7 @@ if uploaded_file is not None:
     except Exception as e:
         st.sidebar.error(f"❌ Error membaca file: Pastikan format file benar dan tidak rusak. Detail: `{e}`")
 
-# --- Variable Selection Section ---
+# --- Variable Selection Section (keep as is) ---
 st.sidebar.header("⚙️ Pilih Variabel")
 
 target_variable = None
@@ -115,8 +115,20 @@ if st.sidebar.button("🚀 Mulai Perhitungan SHAP Rata-rata"):
             def calculate_average_shap_for_single_file(df_input_data, target_col, feature_cols):
                 st.subheader("Detail Proses Data")
                 
-                # Create copies to avoid SettingWithCopyWarning and ensure original df_input_data is untouched for caching
+                # IMPORTANT: Work on a copy of the DataFrame to avoid modifying the cached original
+                # and to prevent SettingWithCopyWarning
                 df_processed = df_input_data.copy()
+
+                # Ensure selected feature columns exist in the DataFrame
+                missing_features = [col for col in feature_cols if col not in df_processed.columns]
+                if missing_features:
+                    st.error(f"❌ Kolom fitur berikut tidak ditemukan dalam data: {', '.join(missing_features)}. Harap periksa pilihan Anda.")
+                    return None, None, None
+
+                # Ensure target column exists
+                if target_col not in df_processed.columns:
+                    st.error(f"❌ Kolom target '{target_col}' tidak ditemukan dalam data. Harap periksa pilihan Anda.")
+                    return None, None, None
 
                 # Round lat/lon only if they are selected as features and exist in the DataFrame
                 if 'lat' in feature_cols and 'lat' in df_processed.columns:
@@ -124,34 +136,45 @@ if st.sidebar.button("🚀 Mulai Perhitungan SHAP Rata-rata"):
                 if 'lon' in feature_cols and 'lon' in df_processed.columns:
                     df_processed['lon'] = df_processed['lon'].round(3)
 
+                # Convert all selected feature columns to numeric, coercing errors to NaN
+                # This is crucial for handling mixed data types or non-numeric entries
+                for col in feature_cols:
+                    df_processed[col] = pd.to_numeric(df_processed[col], errors='coerce')
+                
+                # Convert target column to numeric
+                df_processed[target_col] = pd.to_numeric(df_processed[target_col], errors='coerce')
+
+
                 # Create X and y based on user's selections
                 X = df_processed[feature_cols]
                 y = df_processed[target_col]
 
                 # Drop rows with NaN in X or y
+                # This must happen *after* `pd.to_numeric` and *before* model training
                 initial_rows = len(X)
-                combined_df = pd.concat([X, y], axis=1).dropna()
-                X = combined_df[feature_cols]
-                y = combined_df[target_col]
+                
+                # Combine X and y, then drop NaNs
+                combined_df_for_dropna = pd.concat([X, y], axis=1)
+                combined_df_cleaned = combined_df_for_dropna.dropna()
+                
+                X_cleaned = combined_df_cleaned[feature_cols]
+                y_cleaned = combined_df_cleaned[target_col]
 
-                if len(X) == 0:
-                    st.error("❌ Tidak ada data yang valid setelah membersihkan nilai yang hilang. Perhitungan SHAP tidak dapat dilakukan.")
+                if len(X_cleaned) == 0:
+                    st.error("❌ Tidak ada data yang valid setelah membersihkan nilai yang hilang (NaN) atau non-numerik. Perhitungan SHAP tidak dapat dilakukan. Pastikan kolom fitur dan target hanya berisi nilai numerik.")
                     return None, None, None
-                if len(y) == 0:
-                    st.error("❌ Variabel target tidak memiliki nilai yang valid setelah membersihkan nilai yang hilang. Perhitungan SHAP tidak dapat dilakukan.")
+                if len(y_cleaned) == 0:
+                    st.error("❌ Variabel target tidak memiliki nilai yang valid setelah membersihkan nilai yang hilang (NaN) atau non-numerik. Perhitungan SHAP tidak dapat dilakukan.")
                     return None, None, None
                 
-                st.info(f"Jumlah baris data yang akan diproses setelah membersihkan nilai hilang: **{len(X)}** dari **{initial_rows}** baris awal.")
+                st.info(f"Jumlah baris data yang akan diproses setelah membersihkan nilai hilang atau non-numerik: **{len(X_cleaned)}** dari **{initial_rows}** baris awal.")
                 
                 # --- Train Model ---
                 try:
-                    # Determine if it's a regression or classification problem
-                    # For simplicity, we assume regression if target is numeric, else classification.
-                    # XGBRegressor is a good default for numeric targets.
-                    # For classification, you'd use xgb.XGBClassifier and adjust SHAP explainer.
-                    # For this general purpose, keeping Regressor for numerical targets.
+                    # Model XGBoost Regressor is suitable for numeric targets.
+                    # If target is non-numeric, consider adding a classification option.
                     model = xgb.XGBRegressor(n_estimators=100, max_depth=4, random_state=42)
-                    model.fit(X, y)
+                    model.fit(X_cleaned, y_cleaned) # Use cleaned data for training
                     st.success("✅ Model XGBoost berhasil dilatih.")
                 except Exception as e:
                     st.error(f"❌ Gagal melatih model XGBoost. Mungkin ada masalah dengan data atau pilihan variabel Anda. Detail: `{e}`")
@@ -159,26 +182,33 @@ if st.sidebar.button("🚀 Mulai Perhitungan SHAP Rata-rata"):
 
                 # --- Calculate SHAP Values ---
                 try:
-                    explainer = shap.Explainer(model)
-                    shap_values_obj = explainer(X)
+                    # The explainer should be fit on the *same* X used for training the model
+                    explainer = shap.Explainer(model, X_cleaned) # Use cleaned X here
+                    shap_values_obj = explainer(X_cleaned) # And here for calculating values
                     st.success("✅ SHAP values berhasil dihitung.")
                 except Exception as e:
-                    st.error(f"❌ Gagal menghitung SHAP values. Detail: `{e}`")
+                    st.error(f"❌ Gagal menghitung SHAP values. Pastikan data tidak kosong atau memiliki masalah numerik setelah pembersihan. Detail: `{e}`")
                     return None, None, None
                 
                 averaged_shap_values = shap_values_obj.values
-                final_X_features = X.columns.tolist()
+                final_X_features = X_cleaned.columns.tolist() # Ensure feature names come from the cleaned X
 
+                # Create Explanation object for the plot
+                # Ensure data and feature_names match the X used for SHAP calculation
                 averaged_shap_explanation = shap.Explanation(
                     values=averaged_shap_values,
                     base_values=explainer.expected_value,
-                    data=X.values,
+                    data=X_cleaned.values, # Use the numpy array of cleaned X
                     feature_names=final_X_features
                 )
                 
                 # --- Generate SHAP Summary Plot ---
                 fig_avg, ax_avg = plt.subplots(figsize=(12, 8))
-                shap.summary_plot(averaged_shap_explanation, X, show=False, ax=ax_avg)
+                
+                # Ensure the data passed to summary_plot matches the Explanation object's structure
+                # In this case, passing X_cleaned again is good practice to ensure consistency
+                shap.summary_plot(averaged_shap_explanation, X_cleaned, show=False, ax=ax_avg) 
+                
                 plt.title(f"SHAP Summary Plot Rata-rata untuk Target: {target_col}")
                 plt.tight_layout()
                 
@@ -197,6 +227,7 @@ if st.sidebar.button("🚀 Mulai Perhitungan SHAP Rata-rata"):
 
                 if shap_values_array is not None and feature_names is not None:
                     st.subheader("📊 SHAP Values Rata-rata (Tabel & Unduh Excel)")
+                    
                     # Calculate mean absolute SHAP value for each feature
                     mean_abs_shap_values = np.mean(np.abs(shap_values_array), axis=0)
                     
@@ -220,4 +251,4 @@ if st.sidebar.button("🚀 Mulai Perhitungan SHAP Rata-rata"):
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
             else:
-                st.error("❌ Perhitungan SHAP tidak berhasil diselesaikan. Harap periksa pesan kesalahan di atas.")
+                st.error("❌ Perhitungan SHAP tidak berhasil diselesaikan. Harap periksa pesan kesalahan di atas untuk detail.")
