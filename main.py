@@ -193,13 +193,12 @@ if st.sidebar.button("🚀 Mulai Perhitungan SHAP Rata-rata"):
                 # Define a consistent figure size
                 # Anda bisa menyesuaikan angka-angka ini (misal: (10, 7) atau (12, 9))
                 # sampai Anda menemukan ukuran yang paling pas di Streamlit Anda.
-                PLOT_FIGSIZE = (10, 7) 
 
                 # --- Plot SHAP Summary (Left Column) ---
                 with col1:
                     st.markdown("##### SHAP Summary Plot (Distribusi Pengaruh Fitur)")
                     plt.clf() 
-                    fig_summary = plt.figure(figsize=PLOT_FIGSIZE) # Use consistent size
+                    fig_summary = plt.figure(figsize=(10,7)) # Use consistent size
                     
                     shap_explanation_for_summary_plot = shap.Explanation(
                         values=raw_shap_values,
@@ -222,7 +221,7 @@ if st.sidebar.button("🚀 Mulai Perhitungan SHAP Rata-rata"):
                 with col2:
                     st.markdown("##### Mean Absolute SHAP (Kepentingan Fitur Rata-rata)")
                     plt.clf()
-                    fig_bar = plt.figure(figsize=PLOT_FIGSIZE) # Use consistent size
+                    fig_bar = plt.figure(figsize=(10,15)) # Use consistent size
 
                     mean_abs_shap_values_for_plot = np.mean(np.abs(raw_shap_values), axis=0)
                     df_mean_abs_shap = pd.DataFrame({
