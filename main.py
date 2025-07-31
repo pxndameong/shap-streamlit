@@ -7,7 +7,7 @@ import os
 import numpy as np
 import io # Import io for BytesIO
 
-# --- Streamlit UI Configuration (keep as is) ---
+# --- Streamlit UI Configuration ---
 st.set_page_config(
     page_title="Aplikasi Perhitungan SHAP",
     page_icon="📊",
@@ -26,7 +26,7 @@ st.markdown(
     """
 )
 
-# --- File Upload Section (keep as is) ---
+# --- File Upload Section ---
 st.sidebar.header("📤 Unggah File Data")
 
 uploaded_file = st.sidebar.file_uploader(
@@ -50,7 +50,7 @@ if uploaded_file is not None:
     except Exception as e:
         st.sidebar.error(f"❌ Error membaca file: Pastikan format file benar dan tidak rusak. Detail: `{e}`")
 
-# --- Variable Selection Section (keep as is) ---
+# --- Variable Selection Section ---
 st.sidebar.header("⚙️ Pilih Variabel")
 
 target_variable = None
@@ -123,12 +123,12 @@ if st.sidebar.button("🚀 Mulai Perhitungan SHAP Rata-rata"):
                 missing_features = [col for col in feature_cols if col not in df_processed.columns]
                 if missing_features:
                     st.error(f"❌ Kolom fitur berikut tidak ditemukan dalam data: {', '.join(missing_features)}. Harap periksa pilihan Anda.")
-                    return None, None, None
+                    return None, None, None, None # Add None for shap_explanation_for_plot
 
                 # Ensure target column exists
                 if target_col not in df_processed.columns:
                     st.error(f"❌ Kolom target '{target_col}' tidak ditemukan dalam data. Harap periksa pilihan Anda.")
-                    return None, None, None
+                    return None, None, None, None # Add None for shap_explanation_for_plot
 
                 # Round lat/lon only if they are selected as features and exist in the DataFrame
                 if 'lat' in feature_cols and 'lat' in df_processed.columns:
@@ -137,23 +137,19 @@ if st.sidebar.button("🚀 Mulai Perhitungan SHAP Rata-rata"):
                     df_processed['lon'] = df_processed['lon'].round(3)
 
                 # Convert all selected feature columns to numeric, coercing errors to NaN
-                # This is crucial for handling mixed data types or non-numeric entries
                 for col in feature_cols:
                     df_processed[col] = pd.to_numeric(df_processed[col], errors='coerce')
                 
                 # Convert target column to numeric
                 df_processed[target_col] = pd.to_numeric(df_processed[target_col], errors='coerce')
 
-
                 # Create X and y based on user's selections
                 X = df_processed[feature_cols]
                 y = df_processed[target_col]
 
                 # Drop rows with NaN in X or y
-                # This must happen *after* `pd.to_numeric` and *before* model training
                 initial_rows = len(X)
                 
-                # Combine X and y, then drop NaNs
                 combined_df_for_dropna = pd.concat([X, y], axis=1)
                 combined_df_cleaned = combined_df_for_dropna.dropna()
                 
@@ -162,68 +158,57 @@ if st.sidebar.button("🚀 Mulai Perhitungan SHAP Rata-rata"):
 
                 if len(X_cleaned) == 0:
                     st.error("❌ Tidak ada data yang valid setelah membersihkan nilai yang hilang (NaN) atau non-numerik. Perhitungan SHAP tidak dapat dilakukan. Pastikan kolom fitur dan target hanya berisi nilai numerik.")
-                    return None, None, None
+                    return None, None, None, None
                 if len(y_cleaned) == 0:
                     st.error("❌ Variabel target tidak memiliki nilai yang valid setelah membersihkan nilai yang hilang (NaN) atau non-numerik. Perhitungan SHAP tidak dapat dilakukan.")
-                    return None, None, None
+                    return None, None, None, None
                 
                 st.info(f"Jumlah baris data yang akan diproses setelah membersihkan nilai hilang atau non-numerik: **{len(X_cleaned)}** dari **{initial_rows}** baris awal.")
                 
                 # --- Train Model ---
                 try:
-                    # Model XGBoost Regressor is suitable for numeric targets.
-                    # If target is non-numeric, consider adding a classification option.
                     model = xgb.XGBRegressor(n_estimators=100, max_depth=4, random_state=42)
                     model.fit(X_cleaned, y_cleaned) # Use cleaned data for training
                     st.success("✅ Model XGBoost berhasil dilatih.")
                 except Exception as e:
                     st.error(f"❌ Gagal melatih model XGBoost. Mungkin ada masalah dengan data atau pilihan variabel Anda. Detail: `{e}`")
-                    return None, None, None
+                    return None, None, None, None
 
                 # --- Calculate SHAP Values ---
+                shap_explanation_for_plot = None # Initialize
                 try:
-                    # The explainer should be fit on the *same* X used for training the model
-                    explainer = shap.Explainer(model, X_cleaned) # Use cleaned X here
-                    shap_values_obj = explainer(X_cleaned) # And here for calculating values
+                    explainer = shap.Explainer(model, X_cleaned)
+                    # This line directly computes the shap.Explanation object
+                    shap_explanation_for_plot = explainer(X_cleaned) 
                     st.success("✅ SHAP values berhasil dihitung.")
                 except Exception as e:
                     st.error(f"❌ Gagal menghitung SHAP values. Pastikan data tidak kosong atau memiliki masalah numerik setelah pembersihan. Detail: `{e}`")
-                    return None, None, None
+                    return None, None, None, None
                 
-                averaged_shap_values = shap_values_obj.values
-                final_X_features = X_cleaned.columns.tolist() # Ensure feature names come from the cleaned X
-
-                # Create Explanation object for the plot
-                # Ensure data and feature_names match the X used for SHAP calculation
-                averaged_shap_explanation = shap.Explanation(
-                    values=averaged_shap_values,
-                    base_values=explainer.expected_value,
-                    data=X_cleaned.values, # Use the numpy array of cleaned X
-                    feature_names=final_X_features
-                )
+                # The raw values for the table come from the explanation object
+                averaged_shap_values = shap_explanation_for_plot.values
+                final_X_features = X_cleaned.columns.tolist() 
                 
-                # --- Generate SHAP Summary Plot ---
-                fig_avg, ax_avg = plt.subplots(figsize=(12, 8))
-                
-                # Ensure the data passed to summary_plot matches the Explanation object's structure
-                # In this case, passing X_cleaned again is good practice to ensure consistency
-                shap.summary_plot(averaged_shap_explanation, show=False, ax=ax_avg) 
-                
-                plt.title(f"SHAP Summary Plot Rata-rata untuk Target: {target_col}")
-                plt.tight_layout()
-                
-                return fig_avg, averaged_shap_explanation.values, final_X_features
+                return None, averaged_shap_values, final_X_features, shap_explanation_for_plot # Return explanation object here
 
             # Call the main SHAP calculation function
-            fig_result, shap_values_array, feature_names = calculate_average_shap_for_single_file(
+            # We now expect 4 return values from the function
+            fig_placeholder, shap_values_array, feature_names, shap_explanation_object = calculate_average_shap_for_single_file(
                 df_data, target_variable, feature_variables
             )
 
-            if fig_result is not None:
+            # Check if SHAP calculation was successful (by checking the explanation object)
+            if shap_explanation_object is not None:
                 st.success("✅ Analisis SHAP Selesai!")
                 st.subheader(f"📈 Plot SHAP Rata-rata Keseluruhan untuk Target: **{target_variable}**")
-                st.pyplot(fig_result)
-                plt.close(fig_result) # Close the figure to free up memory
+                
+                # --- Generate and display SHAP Summary Plot ---
+                fig_avg, ax_avg = plt.subplots(figsize=(12, 8))
+                shap.summary_plot(shap_explanation_object, show=False, ax=ax_avg) 
+                plt.title(f"SHAP Summary Plot Rata-rata untuk Target: {target_variable}")
+                plt.tight_layout()
+                st.pyplot(fig_avg)
+                plt.close(fig_avg) # Close the figure to free up memory
 
                 if shap_values_array is not None and feature_names is not None:
                     st.subheader("📊 SHAP Values Rata-rata (Tabel & Unduh Excel)")
