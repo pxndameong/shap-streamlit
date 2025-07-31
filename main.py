@@ -207,7 +207,7 @@ if st.sidebar.button("🚀 Mulai Perhitungan SHAP Rata-rata"):
                 
                 # Ensure the data passed to summary_plot matches the Explanation object's structure
                 # In this case, passing X_cleaned again is good practice to ensure consistency
-                shap.summary_plot(averaged_shap_explanation, X_cleaned, show=False, ax=ax_avg) 
+                shap.summary_plot(averaged_shap_explanation, show=False, ax=ax_avg) 
                 
                 plt.title(f"SHAP Summary Plot Rata-rata untuk Target: {target_col}")
                 plt.tight_layout()
